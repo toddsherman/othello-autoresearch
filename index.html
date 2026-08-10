@@ -97,6 +97,11 @@
   .loop .step .t { font-size: 0.92rem; margin-top: 0.25rem; line-height: 1.35; }
   .loop .arw { align-self: center; color: var(--muted); font-size: 1.3rem; }
   .loopnote { text-align: center; color: var(--muted); font-size: 0.9rem; margin-top: 0.9rem; }
+  @media (max-width: 700px) {
+    .loop { flex-direction: column; align-items: stretch; }
+    .loop .step { flex: none; width: 100%; }
+    .loop .arw { transform: rotate(90deg); }
+  }
 
   /* stat row */
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 0.75rem; margin: 1.8rem 0 0; }
@@ -108,7 +113,7 @@
 
   /* SVG chart */
   .chart svg { width: 100%; height: auto; display: block; }
-  .chart text { fill: var(--muted); font: 12px system-ui, sans-serif; }
+  .chart text { fill: var(--muted); font: 13px system-ui, sans-serif; }
   .chart .axis { stroke: var(--line); }
   .chart .grid { stroke: var(--grid); }
   .chart-title { font-size: 0.95rem; font-weight: 600; color: var(--ink-2); margin-bottom: 0.5rem; }
@@ -362,9 +367,17 @@ function tick(now){for(const rec of anims){if(!rec.active)continue;if(now>=rec.n
   tickBelief(now); requestAnimationFrame(tick);}
 
 // ====================== SVG line chart (best-so-far), reveal-drawn ======================
-function drawChart(el, run, key, dir){
+const _charts=[];
+function drawChart(el, run, key, dir){ _charts.push({el,run,key,dir}); renderChart(el,run,key,dir); }
+function renderChart(el, run, key, dir){
+  el.innerHTML="";
   const NS="http://www.w3.org/2000/svg";
-  const W=920,H=300,m={l:52,r:18,t:16,b:34};
+  // draw at the container's actual pixel width so axis labels render at their
+  // real size (a fixed-width viewBox scales the text down to nothing on phones)
+  const W=Math.max(300, Math.round(el.clientWidth||el.getBoundingClientRect().width||900));
+  const narrow=W<520;
+  const H=Math.round(Math.min(300, Math.max(210, W*0.5)));
+  const m={l:narrow?40:52,r:14,t:14,b:30};
   const runs=run.runs, done=runs.filter(r=>r.status!=="crash");
   const ys=done.map(r=>r[key]); const pad=(Math.max(...ys)-Math.min(...ys))*0.08+1e-6;
   const yMin=Math.min(...ys)-pad,yMax=Math.max(...ys)+pad;
@@ -373,13 +386,14 @@ function drawChart(el, run, key, dir){
   const fmtY=v=>key==="complete_game_rate"?Math.round(v*100)+"%":v.toFixed(2);
   const svg=document.createElementNS(NS,"svg");svg.setAttribute("viewBox","0 0 "+W+" "+H);
   function E(t,a,txt){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;svg.appendChild(e);return e;}
-  for(let i=0;i<=3;i++){const v=yMin+(yMax-yMin)*i/3,yy=y(v);E("line",{x1:m.l,x2:W-m.r,y1:yy,y2:yy,class:"grid"});E("text",{x:m.l-8,y:yy+4,"text-anchor":"end"},fmtY(v));}
-  // hour ticks
-  for(let h=1;h*3600<span;h++){const xx=x(t0+h*3600);E("text",{x:xx,y:H-10,"text-anchor":"middle"},h+"h");}
+  for(let i=0;i<=3;i++){const v=yMin+(yMax-yMin)*i/3,yy=y(v);E("line",{x1:m.l,x2:W-m.r,y1:yy,y2:yy,class:"grid"});E("text",{x:m.l-6,y:yy+4,"text-anchor":"end"},fmtY(v));}
+  // hour ticks, thinned on narrow screens so labels don't collide
+  const hStep=narrow?2:1;
+  for(let h=hStep;h*3600<span;h+=hStep){const xx=x(t0+h*3600);E("text",{x:xx,y:H-9,"text-anchor":"middle"},h+"h");}
   E("line",{x1:m.l,x2:W-m.r,y1:H-m.b,y2:H-m.b,class:"axis"});
   // dots
   for(const r of done){const cx=x(r.started_at+r.wall_seconds/2),cy=y(r[key]);const kept=r.status==="keep";
-    E("circle",{cx,cy,r:kept?4.5:3.5,fill:kept?"var(--accent)":"none",stroke:kept?"none":"var(--muted)","stroke-width":1.5,opacity:kept?1:0.7});}
+    E("circle",{cx,cy,r:kept?4:3,fill:kept?"var(--accent)":"none",stroke:kept?"none":"var(--muted)","stroke-width":1.5,opacity:kept?1:0.7});}
   // best-so-far step line
   let best=null,d="";for(const r of runs){if(r.status!=="keep")continue;const xx=x(r.started_at+r.wall_seconds);if(best===null)d+="M "+xx+" "+y(r[key]);else d+=" L "+xx+" "+y(best)+" L "+xx+" "+y(r[key]);best=r[key];}
   const path=E("path",{d,fill:"none",stroke:key==="complete_game_rate"?"var(--accent-2)":"var(--accent)","stroke-width":2.5,"stroke-linejoin":"round"});
@@ -387,6 +401,7 @@ function drawChart(el, run, key, dir){
   if(len){path.style.strokeDasharray=len;path.style.strokeDashoffset=len;path.style.transition="stroke-dashoffset 1.6s ease .2s";requestAnimationFrame(()=>{path.style.strokeDashoffset=0;});}
   el.appendChild(svg);
 }
+let _crt; addEventListener("resize",()=>{clearTimeout(_crt);_crt=setTimeout(()=>{_charts.forEach(c=>renderChart(c.el,c.run,c.key,c.dir));},200);});
 
 // ====================== probe: heatmap + belief ======================
 const CENTER=new Set([27,28,35,36]);
