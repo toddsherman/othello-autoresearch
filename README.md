@@ -1,4 +1,4 @@
-# Othello, Overnight — an AI agent's research journey
+# Othello Autoresearch — an AI agent's research journey
 
 A static site replaying a multi-night experiment: an AI agent teaches a small GPT
 to play Othello, five minutes at a time, then we look inside the trained model.
