@@ -167,6 +167,7 @@
   .frac { display: inline-flex; flex-direction: column; vertical-align: middle; text-align: center; margin: 0 0.2rem; }
   .frac .num { border-bottom: 1.5px solid var(--ink-2); padding: 0 0.5rem 0.1rem; }
   .frac .den { padding: 0.1rem 0.5rem 0; }
+  @media (max-width: 560px) { .formula .eq { font-size: 0.95rem; } .formula { padding: 0.8rem 0.7rem; } }
 
   /* close / links */
   .links { display: grid; gap: 0.6rem; margin-top: 1.4rem; }
@@ -305,8 +306,8 @@
         <div class="h">Under the hood: a harder test</div>
         <p>The first score was <em>teacher-forced</em>: at every step the model was shown the real game history and judged only on the single next move. That measures prediction, not play. "Actually play" swaps in a different test. The model now generates a whole game by itself, feeding its own moves back in as it goes, and we check what fraction of those games stay legal from the first move to the last:</p>
         <div class="formula">
-          <span class="eq">complete-game rate = <span class="frac"><span class="num">fully legal games, start to finish</span><span class="den">games the model plays</span></span></span>
-          <span class="gloss">measured over a fixed batch of 512 self-play games at a set randomness, so the agent cannot cheat the number.</span>
+          <span class="eq">complete-game rate = <span class="frac"><span class="num">fully legal games</span><span class="den">games played</span></span></span>
+          <span class="gloss">a game counts only if it stays legal from the first move to the last. Measured over a fixed batch of 512 self-play games at a set randomness, so the agent cannot cheat the number.</span>
         </div>
         <p>This is much harder. A single illegal move anywhere ruins the whole game, and because the model is now running on its own output with no teacher to correct it, small mistakes compound. It is exactly the test the earlier prediction loophole could not fake, so pushing on it drove the model toward genuinely legal play.</p>
       </div>
