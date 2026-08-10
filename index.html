@@ -155,6 +155,19 @@
   .callout .h { font-weight: 650; margin-bottom: 0.3rem; }
   .callout p { margin: 0; color: var(--ink-2); font-size: 0.98rem; }
 
+  /* under-the-hood explainer + formulas */
+  .howbox { border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--paper)); border-radius: 0 8px 8px 0; padding: 1.1rem 1.3rem; margin: 1.8rem 0; }
+  .howbox .h { font: 700 0.72rem/1.3 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 0.55rem; }
+  .howbox p { margin: 0 0 0.85rem; color: var(--ink-2); font-size: 0.98rem; }
+  .howbox p:last-child { margin-bottom: 0; }
+  .formula { background: var(--paper); border: 1px solid var(--border); border-radius: 6px; padding: 0.85rem 1rem; margin: 0.6rem 0 0.95rem; text-align: center; overflow-x: auto; }
+  .formula .eq { display: inline-block; font: 1.05rem/1.5 var(--sans); color: var(--ink); white-space: nowrap; }
+  .formula .eq em { font-family: var(--serif); font-style: italic; }
+  .formula .gloss { display: block; margin-top: 0.5rem; color: var(--muted); font: 0.78rem/1.45 var(--sans); white-space: normal; }
+  .frac { display: inline-flex; flex-direction: column; vertical-align: middle; text-align: center; margin: 0 0.2rem; }
+  .frac .num { border-bottom: 1.5px solid var(--ink-2); padding: 0 0.5rem 0.1rem; }
+  .frac .den { padding: 0.1rem 0.5rem 0; }
+
   /* close / links */
   .links { display: grid; gap: 0.6rem; margin-top: 1.4rem; }
   .linkrow { display: flex; gap: 0.6rem; align-items: baseline; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 0.8rem 0.95rem; }
@@ -241,6 +254,20 @@
       <span class="steplabel reveal">The first run &nbsp;<span class="dur">· 91 experiments · about 10 hours</span></span>
       <h2 class="reveal">First, I asked it to be a good guesser</h2>
       <p class="reveal">For the first run, "better" meant one thing: <strong>get better at predicting the next move</strong> in a game. The bet is that if the model can reliably guess what comes next, it must be picking up something real about how Othello works.</p>
+      <div class="howbox reveal">
+        <div class="h">Under the hood: how it learns to guess</div>
+        <p>The model reads the moves so far and, for every square it could play next, outputs a probability. Training rewards it for putting high probability on the move that <em>actually</em> came next. The penalty at each step is the surprise of the real move, and the model is nudged to make that average as small as possible:</p>
+        <div class="formula">
+          <span class="eq">loss = &minus; <span class="frac"><span class="num">1</span><span class="den">N</span></span> &sum; ln <em>p</em>(next move)</span>
+          <span class="gloss">the average surprise across every move in the training games. Lower means it guessed better.</span>
+        </div>
+        <p>To grade it fairly on games it had never seen, that surprise is turned into <strong>bits per byte</strong>, a standard way to measure how tightly a model can compress data:</p>
+        <div class="formula">
+          <span class="eq"><em>val_bpb</em> = <span class="frac"><span class="num">total surprise (nats)</span><span class="den">ln 2 &times; total bytes</span></span></span>
+          <span class="gloss">lower is better. This is the single number the agent drove down, run after run.</span>
+        </div>
+        <p>Here is why the bet pays off: the model is far too small to memorize games, so the only way to keep predicting well is to internally track the board and work out which moves are even legal. Learning to guess quietly forces it to learn the game.</p>
+      </div>
       <p class="reveal sub">It worked. Over about ten hours, the AI kept finding small improvements. Each dot below is one experiment; the line tracks its best result so far.</p>
     </div>
     <figure class="reveal chart" data-viz="run1chart">
@@ -274,6 +301,15 @@
       <span class="steplabel reveal">The second run &nbsp;<span class="dur">· 39 experiments · about 5 hours</span></span>
       <h2 class="reveal">Then I asked it to actually play</h2>
       <p class="reveal">This time "better" meant the thing I really cared about: <strong>play a complete, fully legal game</strong>, start to finish, with no illegal moves at all. A much harder bar, and one the loophole from before couldn't fake.</p>
+      <div class="howbox reveal">
+        <div class="h">Under the hood: a harder test</div>
+        <p>The first score was <em>teacher-forced</em>: at every step the model was shown the real game history and judged only on the single next move. That measures prediction, not play. "Actually play" swaps in a different test. The model now generates a whole game by itself, feeding its own moves back in as it goes, and we check what fraction of those games stay legal from the first move to the last:</p>
+        <div class="formula">
+          <span class="eq">complete-game rate = <span class="frac"><span class="num">fully legal games, start to finish</span><span class="den">games the model plays</span></span></span>
+          <span class="gloss">measured over a fixed batch of 512 self-play games at a set randomness, so the agent cannot cheat the number.</span>
+        </div>
+        <p>This is much harder. A single illegal move anywhere ruins the whole game, and because the model is now running on its own output with no teacher to correct it, small mistakes compound. It is exactly the test the earlier prediction loophole could not fake, so pushing on it drove the model toward genuinely legal play.</p>
+      </div>
       <p class="reveal sub">It climbed fast, and this run knew when to quit. I'd set it to stop automatically once it stopped improving, so it wrapped itself up after about five hours instead of running until the money ran out.</p>
     </div>
     <figure class="reveal chart" data-viz="run2chart">
