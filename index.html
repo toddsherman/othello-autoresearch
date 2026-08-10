@@ -1,0 +1,1026 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>autoresearch: othello — overnight replay</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:        #f9f9f7;
+    --surface-1:   #fcfcfb;
+    --ink:         #0b0b0b;
+    --ink-2:       #52514e;
+    --muted:       #898781;
+    --grid:        #e1e0d9;
+    --baseline:    #c3c2b7;
+    --border:      rgba(11,11,11,0.10);
+    --series-1:    #2a78d6;   /* val_bpb / loss */
+    --series-3:    #1baf7a;   /* legality */
+    --status-good: #0ca30c;
+    --status-crit: #d03b3b;
+    --board:       #2e7d54;
+    --board-line:  rgba(0,0,0,0.25);
+    --disc-black:  #141414;
+    --disc-white:  #f4f2ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:        #0d0d0d;
+      --surface-1:   #1a1a19;
+      --ink:         #ffffff;
+      --ink-2:       #c3c2b7;
+      --muted:       #898781;
+      --grid:        #2c2c2a;
+      --baseline:    #383835;
+      --border:      rgba(255,255,255,0.10);
+      --series-1:    #3987e5;
+      --series-3:    #199e70;
+      --board:       #23543b;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:        #0d0d0d;
+    --surface-1:   #1a1a19;
+    --ink:         #ffffff;
+    --ink-2:       #c3c2b7;
+    --muted:       #898781;
+    --grid:        #2c2c2a;
+    --baseline:    #383835;
+    --border:      rgba(255,255,255,0.10);
+    --series-1:    #3987e5;
+    --series-3:    #199e70;
+    --board:       #23543b;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 20px 24px 60px; }
+
+  header h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  header .sub { color: var(--ink-2); margin: 2px 0 0; }
+  .head-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  #themeBtn {
+    background: var(--surface-1); color: var(--ink-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; cursor: pointer; font: inherit;
+  }
+
+  .nighttabs { display: flex; gap: 8px; margin: 16px 0 6px; flex-wrap: wrap; }
+  .nighttab {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 999px;
+    padding: 7px 14px; cursor: pointer; font: inherit; color: var(--ink-2); display: flex;
+    align-items: baseline; gap: 8px; transition: background 0.12s, border-color 0.12s;
+  }
+  .nighttab:hover { background: var(--page); }
+  .nighttab.active { border-color: var(--series-1); color: var(--ink); }
+  .nighttab .act { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .nighttab.active .act { color: var(--series-1); }
+  .nighttab.pending { opacity: 0.6; cursor: default; font-style: italic; }
+  .nighthead h2 { font-size: 16px; margin: 4px 0 0; font-weight: 600; }
+  .nighthead .sub { margin: 2px 0 0; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0 0; }
+  .tile {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 14px;
+  }
+  .tile .k { color: var(--muted); font-size: 12px; }
+  .tile .v { font-size: 24px; font-weight: 600; margin-top: 2px; }
+  .tile .v small { font-size: 13px; font-weight: 400; color: var(--ink-2); }
+
+  .champs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0 0; }
+  @media (max-width: 720px) { .champs { grid-template-columns: 1fr; } }
+  .champ {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; cursor: pointer; text-align: left; color: inherit; font: inherit;
+    border-left: 3px solid var(--series-1); transition: background 0.12s;
+  }
+  .champ:hover { background: var(--page); }
+  .champ.leg { border-left-color: var(--series-3); }
+  .champ .ct { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .champ .cv { font-size: 19px; font-weight: 700; margin: 2px 0; }
+  .champ .cd { font-size: 12px; color: var(--ink-2); }
+  .champ .cj { font-size: 11px; color: var(--series-1); margin-top: 4px; }
+  .champ.leg .cj { color: var(--series-3); }
+
+  .panel {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  .panel h2 { font-size: 13px; margin: 0 0 8px; color: var(--ink-2); font-weight: 600;
+              text-transform: uppercase; letter-spacing: 0.05em; }
+
+  #controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  #playBtn {
+    width: 42px; height: 42px; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--series-1); color: #fff; font-size: 16px;
+  }
+  #speed, #controls select {
+    background: var(--surface-1); color: var(--ink); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 8px; font: inherit;
+  }
+  #scrub { flex: 1; min-width: 180px; accent-color: var(--series-1); }
+  #clock { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 16px; min-width: 72px; }
+  #phase { color: var(--ink-2); min-width: 200px; }
+
+  .legend { display: flex; gap: 16px; margin-top: 6px; color: var(--ink-2); font-size: 12px; flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .chip { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+  svg text { fill: var(--muted); font: 11px system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+  svg .axis { stroke: var(--baseline); stroke-width: 1; }
+  svg .grid { stroke: var(--grid); stroke-width: 1; }
+
+  main { display: grid; grid-template-columns: minmax(380px, 1fr) minmax(420px, 1fr); gap: 14px; }
+  @media (max-width: 940px) { main { grid-template-columns: 1fr; } }
+
+  .run-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .run-head .seq { font-size: 20px; font-weight: 700; }
+  .run-head .desc { font-size: 15px; }
+  .badge {
+    font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--ink-2);
+  }
+  .badge.keep    { color: var(--status-good); border-color: var(--status-good); }
+  .badge.discard { color: var(--muted); }
+  .badge.crash   { color: var(--status-crit); border-color: var(--status-crit); }
+  .badge.pending { color: var(--series-1); border-color: var(--series-1); }
+  .run-meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .run-meta code { font-family: ui-monospace, monospace; }
+
+  #banner {
+    display: none; margin: 10px 0; padding: 10px 12px; border-radius: 8px;
+    background: var(--page); border: 1px dashed var(--baseline); color: var(--ink-2);
+  }
+  #banner.on { display: block; }
+
+  details.diff { margin-top: 10px; }
+  details.diff summary { cursor: pointer; color: var(--ink-2); }
+  details.diff pre {
+    background: var(--page); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px; overflow-x: auto; font: 12px ui-monospace, monospace; color: var(--ink-2);
+  }
+
+  .boards-head { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+  .boards-head .mstat { color: var(--ink-2); font-size: 13px; }
+  .boards-head .mstat b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  #boardGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-top: 10px; }
+  .boardCell { text-align: center; }
+  .board {
+    aspect-ratio: 1; width: 100%; background: var(--board); border-radius: 8px;
+    display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);
+    padding: 3%; gap: 1.5%; position: relative;
+  }
+  .sq { border: 1px solid var(--board-line); border-radius: 2px; position: relative; }
+  .sq .disc {
+    position: absolute; inset: 12%; border-radius: 50%;
+    transition: background 0.18s ease, transform 0.18s ease;
+  }
+  .sq .disc.b { background: var(--disc-black); box-shadow: inset 0 -2px 3px rgba(255,255,255,0.15); }
+  .sq .disc.w { background: var(--disc-white); box-shadow: inset 0 -2px 3px rgba(0,0,0,0.25); }
+  .sq.last::after {
+    content: ""; position: absolute; inset: 2%; border: 2px solid var(--series-1);
+    border-radius: 4px; pointer-events: none;
+  }
+  .sq.illegal::before {
+    content: "✕"; position: absolute; inset: 0; display: grid; place-items: center;
+    color: var(--status-crit); font-size: 20px; font-weight: 800; z-index: 2;
+  }
+  .board.flash { animation: flash 0.5s; }
+  @keyframes flash { 0%,100% { outline: 0 solid transparent; } 50% { outline: 4px solid var(--status-crit); } }
+  .boardCap { margin-top: 6px; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; min-height: 2.6em; }
+  .boardCap .ill { color: var(--status-crit); font-weight: 600; }
+  .boardCap .done { color: var(--status-good); font-weight: 600; }
+
+  #tooltip {
+    position: fixed; pointer-events: none; z-index: 10; display: none;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    padding: 6px 10px; font-size: 12px; color: var(--ink); box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    font-variant-numeric: tabular-nums; max-width: 260px;
+  }
+  #tooltip .t { color: var(--muted); }
+
+  details.tableview { margin-top: 14px; }
+  details.tableview summary { cursor: pointer; color: var(--ink-2); }
+  table { border-collapse: collapse; width: 100%; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--grid); font-size: 13px; }
+  th { color: var(--muted); font-weight: 600; }
+  td.num { text-align: right; }
+  footer { margin-top: 26px; color: var(--muted); font-size: 12px; }
+
+  /* Act III — world-model probe */
+  .probe-hero { text-align: center; padding: 8px 0; }
+  .probe-verdict { font-size: 30px; font-weight: 700; letter-spacing: -0.01em; }
+  .probe-lead { color: var(--ink-2); margin-top: 6px; max-width: 62ch; margin-left: auto; margin-right: auto; }
+  .probe-note { color: var(--ink-2); font-size: 13px; margin: 0 0 12px; }
+  .heatwrap { max-width: 360px; margin: 0 auto; }
+  .board.heat { background: var(--baseline); gap: 3%; }
+  .heat-sq { border-radius: 3px; display: grid; place-items: center; font-size: 10px;
+             font-variant-numeric: tabular-nums; color: rgba(0,0,0,0.62); font-weight: 600; }
+  .heat-sq.dead { background: transparent !important; color: transparent; }
+  .heat-scale { display: flex; align-items: center; gap: 10px; justify-content: center;
+                margin-top: 12px; color: var(--muted); font-size: 12px; }
+  .heat-bar { width: 160px; height: 10px; border-radius: 5px;
+              background: linear-gradient(90deg, #d03b3b, #eda100, #1baf7a, #0ca30c); }
+  #layerBars { margin-top: 16px; display: flex; flex-direction: column; gap: 6px; }
+  .layerbar { display: grid; grid-template-columns: 68px 1fr 52px; align-items: center; gap: 10px; font-size: 12px; }
+  .layerbar .lb-track { height: 14px; background: var(--page); border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .layerbar .lb-fill { height: 100%; background: var(--series-3); }
+  .layerbar.best .lb-fill { background: var(--series-1); }
+  .layerbar .lb-val { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+  .belief-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 6px; max-width: 560px; }
+  @media (max-width: 620px) { .belief-grid { grid-template-columns: 1fr; } }
+  .board .bsq { border: 1px solid var(--board-line); border-radius: 2px; position: relative; }
+  .board .bsq .disc { position: absolute; inset: 14%; border-radius: 50%; }
+  .board .bsq .disc.mine { background: var(--disc-black); }
+  .board .bsq .disc.theirs { background: var(--disc-white); }
+  .board .bsq.wrong { outline: 2px solid var(--status-crit); outline-offset: -2px; }
+  .probe-play { background: var(--series-1); color: #fff; border: none; border-radius: 8px;
+                padding: 7px 14px; cursor: pointer; font: inherit; }
+  .belief-status { margin-top: 10px; color: var(--ink-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .belief-status b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="head-row">
+      <div>
+        <h1 id="title">autoresearch: othello</h1>
+        <p class="sub" id="tagline"></p>
+      </div>
+      <button id="themeBtn" title="Toggle theme">◐ theme</button>
+    </div>
+    <div class="nighttabs" id="nightTabs"></div>
+    <div class="nighthead">
+      <h2 id="nightTitle"></h2>
+      <p class="sub" id="subtitle"></p>
+    </div>
+  </header>
+
+  <div id="timelineAct">
+    <div class="tiles">
+      <div class="tile"><div class="k">experiments run</div><div class="v" id="tExp">–</div></div>
+      <div class="tile"><div class="k">kept</div><div class="v" id="tKept">–</div></div>
+      <div class="tile"><div class="k" id="tBpbK">best</div><div class="v" id="tBpb">–</div></div>
+      <div class="tile"><div class="k">complete games</div><div class="v" id="tLeg">–</div></div>
+      <div class="tile"><div class="k">win rate vs random</div><div class="v" id="tWin">–</div></div>
+    </div>
+    <div class="champs" id="champs"></div>
+
+  <section class="panel" id="controls">
+    <button id="playBtn" title="Play/pause">▶</button>
+    <div id="clock">–:–</div>
+    <select id="speed">
+      <option value="10">10×</option>
+      <option value="60" selected>60×</option>
+      <option value="240">240×</option>
+      <option value="1000">1000×</option>
+    </select>
+    <input type="range" id="scrub" min="0" max="1000" value="0">
+    <div id="phase">loading…</div>
+  </section>
+
+  <section class="panel">
+    <h2 id="nightChartTitle">The night — per experiment</h2>
+    <div id="nightChart"></div>
+    <div class="legend">
+      <span><span class="chip" style="background:var(--series-1)"></span> kept (line = best so far)</span>
+      <span><span class="chip" style="background:transparent;border:2px solid var(--muted);width:7px;height:7px"></span> discarded</span>
+      <span><span style="color:var(--status-crit);font-weight:700">✕</span> crashed</span>
+    </div>
+  </section>
+
+  <main>
+    <section class="panel" id="runPanel">
+      <h2>Current experiment</h2>
+      <div class="run-head">
+        <span class="seq" id="rSeq">–</span>
+        <span class="desc" id="rDesc"></span>
+        <span class="badge" id="rBadge"></span>
+      </div>
+      <div class="run-meta" id="rMeta"></div>
+      <div id="banner"></div>
+      <h2 style="margin-top:14px">train loss <span style="text-transform:none;letter-spacing:0;color:var(--muted)">(nats/token)</span></h2>
+      <div id="lossChart"></div>
+      <h2 style="margin-top:14px">sampled-move legality</h2>
+      <div id="legChart"></div>
+      <details class="diff" id="diffBox"><summary>train.py diff for this experiment</summary><pre id="rDiff"></pre></details>
+    </section>
+
+    <section class="panel">
+      <div class="boards-head">
+        <h2 style="margin:0">what the model plays right now</h2>
+        <div class="mstat" id="mStat"></div>
+      </div>
+      <div id="boardGrid"></div>
+    </section>
+  </main>
+
+  <details class="tableview panel">
+    <summary>all experiments (table view)</summary>
+    <table id="runTable">
+      <thead><tr><th>#</th><th>description</th><th>status</th><th class="num">val_bpb</th><th class="num">complete games</th><th class="num">win vs random</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </details>
+  </div><!-- /timelineAct -->
+
+  <div id="probeAct" style="display:none">
+    <section class="panel">
+      <div class="probe-hero">
+        <div class="probe-verdict" id="probeVerdict">–</div>
+        <div class="probe-lead" id="probeLead"></div>
+      </div>
+    </section>
+    <main>
+      <section class="panel">
+        <h2>Probe accuracy by square</h2>
+        <p class="probe-note">How well a linear probe reads each square's state (mine / theirs / empty) from the model's internal activations. Greener = the model represents that square more reliably.</p>
+        <div class="heatwrap"><div class="board heat" id="heatBoard"></div></div>
+        <div class="heat-scale"><span>chance ≈ 33%</span><div class="heat-bar"></div><span>100%</span></div>
+        <div id="layerBars"></div>
+      </section>
+      <section class="panel">
+        <div class="boards-head">
+          <h2 style="margin:0">what the model "sees" inside</h2>
+          <button id="probePlay" class="probe-play">▶ play</button>
+        </div>
+        <p class="probe-note">Left: the board the model has decoded internally (from the probe). Right: the true board. They track each other — the model is holding the game state in its head, having only ever seen move lists.</p>
+        <div class="belief-grid">
+          <div class="boardCell"><div class="board" id="beliefBoard"></div><div class="boardCap">model's internal belief</div></div>
+          <div class="boardCell"><div class="board" id="truthBoard"></div><div class="boardCap">actual board</div></div>
+        </div>
+        <div class="belief-status" id="beliefStatus"></div>
+      </section>
+    </main>
+  </div>
+
+  <footer id="foot"></footer>
+</div>
+<div id="tooltip"></div>
+
+<script src="data.js"></script>
+<script>
+"use strict";
+// ============================== Othello engine ==============================
+const DIRS = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+const BLACK = 0, WHITE = 1;
+function initBoard() {
+  const b = new Array(64).fill(-1);
+  b[27] = WHITE; b[36] = WHITE; b[28] = BLACK; b[35] = BLACK;
+  return b;
+}
+function legalMoves(b, p) {
+  const opp = 1 - p, out = [];
+  for (let sq = 0; sq < 64; sq++) {
+    if (b[sq] !== -1) continue;
+    const r = sq >> 3, c = sq & 7;
+    for (const [dr, dc] of DIRS) {
+      let rr = r + dr, cc = c + dc, seen = false;
+      while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === opp) { seen = true; rr += dr; cc += dc; }
+      if (seen && rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && b[rr * 8 + cc] === p) { out.push(sq); break; }
+    }
+  }
+  return out;
+}
+function applyMove(b, p, sq) {
+  const opp = 1 - p, nb = b.slice(), r = sq >> 3, c = sq & 7;
+  nb[sq] = p;
+  for (const [dr, dc] of DIRS) {
+    let rr = r + dr, cc = c + dc; const path = [];
+    while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && nb[rr * 8 + cc] === opp) { path.push(rr * 8 + cc); rr += dr; cc += dc; }
+    if (path.length && rr >= 0 && rr < 8 && cc >= 0 && cc < 8 && nb[rr * 8 + cc] === p)
+      for (const s of path) nb[s] = p;
+  }
+  return nb;
+}
+function nameToSq(n) {
+  if (!/^[a-h][1-8]$/.test(n)) return null;
+  return (n.charCodeAt(1) - 49) * 8 + (n.charCodeAt(0) - 97);
+}
+// Precompute playback frames for a sampled game transcript.
+function gameFrames(g) {
+  const tokens = g.moves ? g.moves.split(/\s+/) : [];
+  const frames = [{ board: initBoard(), last: -1, player: BLACK, note: "" }];
+  let board = initBoard(), player = BLACK, over = false;
+  let illegalSq = null, illegalTok = null, playedLegal = 0;
+  for (const tok of tokens) {
+    const sq = nameToSq(tok);
+    const legal = over ? [] : legalMoves(board, player);
+    if (sq === null || !legal.includes(sq)) { illegalSq = sq; illegalTok = tok; break; }
+    board = applyMove(board, player, sq);
+    playedLegal++;
+    player = 1 - player;
+    if (!legalMoves(board, player).length) {
+      player = 1 - player;
+      if (!legalMoves(board, player).length) over = true;
+    }
+    frames.push({ board, last: sq, player, note: "" });
+  }
+  const black = board.filter(x => x === BLACK).length;
+  const white = board.filter(x => x === WHITE).length;
+  return { frames, illegalSq, illegalTok, playedLegal, total: tokens.length,
+           complete: g.is_complete, black, white };
+}
+
+// ============================== Data & helpers ==============================
+// Multi-night research journey. The active night is swapped by loadNight();
+// everything below reads these night-scoped bindings so the same playback
+// engine renders each night, direction-aware via PRIMARY.
+const RESEARCH = window.RESEARCH_DATA;
+const NIGHTS = RESEARCH.nights;
+let NIGHT_IDX = NIGHTS.findIndex(n => n.status === "complete");
+if (NIGHT_IDX < 0) NIGHT_IDX = 0;
+let DATA, RUNS, PRIMARY, NIGHT_T0, NIGHT_T1, NIGHT_LEN;
+
+const fmtClock = t => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const fmtPct = x => (100 * x).toFixed(1) + "%";
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// Format a primary-metric value per the night's declared format.
+function fmtPrimary(v) { return PRIMARY.fmt === "pct" ? fmtPct(v) : v.toFixed(4); }
+// Is value a better than value b on the active night's objective?
+function isBetter(a, b) { return PRIMARY.direction === "min" ? a < b : a > b; }
+// The best (champion) run on the active night's objective.
+function bestRun(runs) {
+  const keeps = runs.filter(r => r.status === "keep" && (PRIMARY.direction === "min" ? r[PRIMARY.key] > 0 : true));
+  const pool = keeps.length ? keeps : runs.filter(r => r.status !== "crash");
+  return pool.reduce((a, b) => isBetter(b[PRIMARY.key], a[PRIMARY.key]) ? b : a);
+}
+
+function setActiveNight(idx) {
+  NIGHT_IDX = idx;
+  DATA = NIGHTS[idx];
+  RUNS = DATA.runs || [];
+  PRIMARY = DATA.primary || null;
+  if (RUNS.length) {
+    NIGHT_T0 = RUNS[0].started_at;
+    NIGHT_T1 = RUNS[RUNS.length - 1].started_at + RUNS[RUNS.length - 1].wall_seconds + 30;
+    NIGHT_LEN = NIGHT_T1 - NIGHT_T0;
+  }
+}
+setActiveNight(NIGHT_IDX);
+
+// ============================== Playback state ==============================
+let T = NIGHT_T0;            // sim clock (unix seconds)
+let playing = false;
+let speed = 60;
+let lastFrameTs = null;
+
+// Derive everything shown on screen from T (pure; scrub-safe).
+function deriveState(t) {
+  let run = null, idx = -1;
+  for (let i = 0; i < RUNS.length; i++) {
+    if (RUNS[i].started_at <= t) { run = RUNS[i]; idx = i; } else break;
+  }
+  if (!run) { run = RUNS[0]; idx = 0; }
+  const next = RUNS[idx + 1] || null;
+  const tIn = t - run.started_at;
+  const inRun = tIn <= run.wall_seconds;
+  let phase, progress = 0;
+  if (!inRun) {
+    phase = next ? "between" : "done";
+    progress = run.status === "crash" ? 0 : 1;
+  } else if (tIn < run.startup_seconds) {
+    phase = "startup";
+  } else {
+    phase = "training";
+    progress = Math.min(1, (tIn - run.startup_seconds) / 300);
+    if (run.status === "crash") phase = "crashing";
+  }
+  const milestone = run.milestones.length
+    ? run.milestones[Math.min(run.milestones.length - 1, Math.floor(progress * 10))]
+    : null;
+  // completed-so-far aggregates for the tiles (direction-aware on the primary)
+  const doneRuns = RUNS.filter(r => r.started_at + r.wall_seconds <= t);
+  const keptDone = doneRuns.filter(r => r.status === "keep");
+  const vals = keptDone.map(r => r[PRIMARY.key]);
+  const bestSoFar = vals.length ? (PRIMARY.direction === "min" ? Math.min(...vals) : Math.max(...vals)) : null;
+  const lastKept = keptDone.length ? keptDone[keptDone.length - 1] : null;
+  return { run, idx, next, phase, progress, milestone, doneRuns, bestSoFar, lastKept };
+}
+
+// ============================== SVG chart helpers ==============================
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const tooltip = document.getElementById("tooltip");
+function showTip(html, x, y) {
+  tooltip.innerHTML = html;
+  tooltip.style.display = "block";
+  const w = tooltip.offsetWidth;
+  tooltip.style.left = Math.min(x + 14, innerWidth - w - 10) + "px";
+  tooltip.style.top = (y + 14) + "px";
+}
+function hideTip() { tooltip.style.display = "none"; }
+
+// ---------- Night timeline chart ----------
+const nightBox = document.getElementById("nightChart");
+let nightGeom = null;
+function buildNightChart() {
+  nightBox.innerHTML = "";
+  const W = nightBox.clientWidth || 1100, H = 170;
+  const m = { l: 52, r: 14, t: 10, b: 22 };
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", height: H }, nightBox);
+  const done = RUNS.filter(r => r.status !== "crash");
+  const key = PRIMARY.key;
+  const ys = done.map(r => r[key]);
+  const pad = (Math.max(...ys) - Math.min(...ys)) * 0.08 + 1e-6;
+  const yMin = Math.min(...ys) - pad, yMax = Math.max(...ys) + pad;
+  const x = t => m.l + (t - NIGHT_T0) / NIGHT_LEN * (W - m.l - m.r);
+  const y = v => m.t + (yMax - v) / (yMax - yMin) * (H - m.t - m.b);
+  nightGeom = { x, y, W, H, m };
+  const fmtY = v => PRIMARY.fmt === "pct" ? Math.round(v * 100) + "%" : v.toFixed(3);
+  // grid + y ticks
+  for (let i = 0; i <= 3; i++) {
+    const v = yMin + (yMax - yMin) * i / 3, yy = y(v);
+    el("line", { x1: m.l, x2: W - m.r, y1: yy, y2: yy, class: "grid" }, svg);
+    el("text", { x: m.l - 6, y: yy + 3, "text-anchor": "end" }, svg).textContent = fmtY(v);
+  }
+  // x ticks: every hour
+  for (let t = Math.ceil(NIGHT_T0 / 3600) * 3600; t < NIGHT_T1; t += 3600) {
+    el("text", { x: x(t), y: H - 6, "text-anchor": "middle" }, svg).textContent =
+      new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  el("line", { x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, class: "axis" }, svg);
+  // best-so-far step line (kept runs only), direction-aware
+  let best = null; let d = "";
+  for (const r of RUNS) {
+    if (r.status !== "keep") continue;
+    const xx = x(r.started_at + r.wall_seconds);
+    if (best === null) d += `M ${xx} ${y(r[key])}`;
+    else d += ` L ${xx} ${y(best)} L ${xx} ${y(r[key])}`;
+    best = r[key];
+  }
+  el("path", { d, fill: "none", style: "stroke:var(--series-1)", "stroke-width": 2 }, svg);
+  // run marks
+  for (const r of RUNS) {
+    const xx = x(r.started_at + r.wall_seconds / 2);
+    let mark;
+    if (r.status === "crash") {
+      const yy = H - m.b - 10;
+      mark = el("text", { x: xx, y: yy, "text-anchor": "middle",
+        style: "fill:var(--status-crit);font-weight:700;font-size:13px" }, svg);
+      mark.textContent = "✕";
+    } else if (r.status === "keep") {
+      mark = el("circle", { cx: xx, cy: y(r[key]), r: 5, style: "fill:var(--series-1)" }, svg);
+    } else {
+      mark = el("circle", { cx: xx, cy: y(r[key]), r: 4.5,
+        style: "fill:none;stroke:var(--muted)", "stroke-width": 2 }, svg);
+    }
+    const hit = el("rect", { x: xx - 10, y: m.t, width: 20, height: H - m.t - m.b,
+      fill: "transparent", style: "cursor:pointer" }, svg);
+    hit.addEventListener("mousemove", ev => showTip(
+      `<b>#${r.seq}</b> ${r.description}<br>` +
+      (r.status === "crash" ? `<span style="color:var(--status-crit)">crashed</span>`
+        : `${PRIMARY.label} <b>${fmtPrimary(r[key])}</b> · ${r.status}`) +
+      `<br><span class="t">${fmtClock(r.started_at)}</span>`, ev.clientX, ev.clientY));
+    hit.addEventListener("mouseleave", hideTip);
+    hit.addEventListener("click", () => { setT(r.started_at + 1); render(true); });
+  }
+  // playback cursor
+  el("line", { id: "cursor", x1: x(T), x2: x(T), y1: m.t, y2: H - m.b,
+    style: "stroke:var(--ink)", "stroke-width": 1.5, "stroke-dasharray": "3 3" }, svg);
+}
+
+// ---------- Small line chart (loss / legality), progressively revealed ----------
+function buildSmallChart(box, opts) {
+  box.innerHTML = "";
+  const W = box.clientWidth || 520, H = 130;
+  const m = { l: 46, r: 10, t: 8, b: 20 };
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", height: H }, box);
+  const x = p => m.l + p * (W - m.l - m.r);
+  const y = v => m.t + (opts.yMax - v) / (opts.yMax - opts.yMin) * (H - m.t - m.b);
+  for (let i = 0; i <= 2; i++) {
+    const v = opts.yMin + (opts.yMax - opts.yMin) * i / 2, yy = y(v);
+    el("line", { x1: m.l, x2: W - m.r, y1: yy, y2: yy, class: "grid" }, svg);
+    el("text", { x: m.l - 6, y: yy + 3, "text-anchor": "end" }, svg).textContent = opts.fmt(v);
+  }
+  for (const p of [0, 0.5, 1])
+    el("text", { x: x(p), y: H - 5, "text-anchor": "middle" }, svg).textContent = (p * 100) + "%";
+  el("line", { x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, class: "axis" }, svg);
+  const path = el("path", { fill: "none", style: `stroke:${opts.color}`, "stroke-width": 2,
+    "stroke-linejoin": "round" }, svg);
+  const dots = el("g", {}, svg);
+  const hover = el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b,
+    fill: "transparent" }, svg);
+  const cross = el("line", { y1: m.t, y2: H - m.b, class: "grid", visibility: "hidden",
+    "stroke-dasharray": "2 3" }, svg);
+  const state = { pts: [] };
+  hover.addEventListener("mousemove", ev => {
+    if (!state.pts.length) return;
+    const r = svg.getBoundingClientRect();
+    const px = (ev.clientX - r.left) * (W / r.width);
+    let bestPt = state.pts[0];
+    for (const pt of state.pts) if (Math.abs(x(pt[0]) - px) < Math.abs(x(bestPt[0]) - px)) bestPt = pt;
+    cross.setAttribute("x1", x(bestPt[0])); cross.setAttribute("x2", x(bestPt[0]));
+    cross.setAttribute("visibility", "visible");
+    showTip(`${opts.name} <b>${opts.fmt(bestPt[1])}</b><br><span class="t">at ${(bestPt[0] * 100).toFixed(0)}% of budget</span>`,
+      ev.clientX, ev.clientY);
+  });
+  hover.addEventListener("mouseleave", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
+  return {
+    update(ptsIn, withDots) {
+      const pts = opts.clamp ? ptsIn.map(p => [p[0], Math.min(p[1], opts.yMax)]) : ptsIn;
+      state.pts = pts;
+      path.setAttribute("d", pts.length
+        ? "M " + pts.map(p => `${x(p[0]).toFixed(1)} ${y(p[1]).toFixed(1)}`).join(" L ") : "");
+      dots.innerHTML = "";
+      if (withDots) for (const p of pts)
+        el("circle", { cx: x(p[0]), cy: y(p[1]), r: 4, style: `fill:${opts.color}` }, dots);
+    }
+  };
+}
+
+// ============================== Boards ==============================
+const boardGrid = document.getElementById("boardGrid");
+const boardCells = [];
+function buildBoards(n) {
+  boardGrid.innerHTML = ""; boardCells.length = 0;
+  for (let i = 0; i < n; i++) {
+    const cell = document.createElement("div"); cell.className = "boardCell";
+    const bd = document.createElement("div"); bd.className = "board";
+    const sqs = [];
+    for (let s = 0; s < 64; s++) {
+      const sq = document.createElement("div"); sq.className = "sq";
+      const disc = document.createElement("div"); disc.className = "disc"; disc.style.display = "none";
+      sq.appendChild(disc); bd.appendChild(sq); sqs.push({ sq, disc });
+    }
+    const cap = document.createElement("div"); cap.className = "boardCap";
+    cell.appendChild(bd); cell.appendChild(cap); boardGrid.appendChild(cell);
+    boardCells.push({ bd, sqs, cap, anim: null, frameIdx: 0, nextStep: 0 });
+  }
+}
+function renderBoard(cellIdx) {
+  const c = boardCells[cellIdx], a = c.anim;
+  if (!a) return;
+  const fi = Math.min(c.frameIdx, a.frames.length - 1);
+  const f = a.frames[fi];
+  for (let s = 0; s < 64; s++) {
+    const { sq, disc } = c.sqs[s];
+    const v = f.board[s];
+    disc.style.display = v === -1 ? "none" : "block";
+    disc.className = "disc " + (v === BLACK ? "b" : v === WHITE ? "w" : "");
+    sq.classList.toggle("last", s === f.last && fi > 0);
+    sq.classList.remove("illegal");
+  }
+  const atEnd = fi === a.frames.length - 1;
+  let capHtml = `move ${fi}/${a.total}`;
+  if (atEnd && a.illegalTok !== null && a.illegalTok !== undefined) {
+    if (a.illegalSq !== null) c.sqs[a.illegalSq].sq.classList.add("illegal");
+    capHtml = `move ${fi}/${a.total} — <span class="ill">illegal: ${a.illegalTok}</span>`;
+    if (!c.flashed) { c.bd.classList.add("flash"); c.flashed = true; setTimeout(() => c.bd.classList.remove("flash"), 600); }
+  } else if (atEnd && a.complete) {
+    capHtml = `<span class="done">complete legal game</span> — ${a.black}–${a.white}`;
+  } else if (atEnd) {
+    capHtml = `stopped at move ${fi}/${a.total}`;
+  }
+  c.cap.innerHTML = capHtml;
+}
+let currentMilestoneKey = null;
+function setBoardsFromMilestone(run, milestone) {
+  const key = run.run_id + ":" + (milestone ? milestone.milestone : "none");
+  if (key === currentMilestoneKey) return;
+  currentMilestoneKey = key;
+  const games = milestone ? milestone.games.slice(0, boardCells.length) : [];
+  for (let i = 0; i < boardCells.length; i++) {
+    const c = boardCells[i];
+    c.anim = games[i] ? gameFrames(games[i]) : null;
+    c.frameIdx = 0; c.nextStep = 0; c.flashed = false;
+    if (!c.anim) { c.cap.textContent = ""; c.sqs.forEach(({ sq, disc }) => { disc.style.display = "none"; sq.className = "sq"; }); }
+    else renderBoard(i);
+  }
+}
+const MOVES_PER_SEC = 9, END_HOLD_MS = 1500;
+function tickBoards(nowMs) {
+  for (let i = 0; i < boardCells.length; i++) {
+    const c = boardCells[i];
+    if (!c.anim) continue;
+    if (nowMs >= c.nextStep) {
+      const atEnd = c.frameIdx >= c.anim.frames.length - 1;
+      if (atEnd) { c.frameIdx = 0; c.flashed = false; c.nextStep = nowMs + 400; }
+      else {
+        c.frameIdx++;
+        const nowAtEnd = c.frameIdx >= c.anim.frames.length - 1;
+        c.nextStep = nowMs + (nowAtEnd ? END_HOLD_MS : 1000 / MOVES_PER_SEC);
+      }
+      renderBoard(i);
+    }
+  }
+}
+
+// ============================== Main render ==============================
+const $ = id => document.getElementById(id);
+let lossChart, legChart;
+function render(force) {
+  const st = deriveState(T);
+  const { run, phase, progress, milestone, next } = st;
+  // cursor + clock + scrub
+  const cursor = document.getElementById("cursor");
+  if (cursor && nightGeom) {
+    cursor.setAttribute("x1", nightGeom.x(T)); cursor.setAttribute("x2", nightGeom.x(T));
+  }
+  $("clock").textContent = fmtClock(T);
+  $("scrub").value = Math.round((T - NIGHT_T0) / NIGHT_LEN * 1000);
+  // phase label
+  const phaseTexts = {
+    startup: `#${run.seq} starting up (compile + data)…`,
+    training: `#${run.seq} training — ${(progress * 100).toFixed(0)}% of 5-minute budget`,
+    crashing: `#${run.seq} running… (this one is about to crash)`,
+    between: next ? `agent analyzing results, editing train.py → next: “${next.description}”` : "",
+    done: "night complete — the agent is still going, you just stopped watching",
+  };
+  $("phase").textContent = phaseTexts[phase] || "";
+  // tiles
+  $("tExp").textContent = st.doneRuns.length;
+  $("tKept").textContent = st.doneRuns.filter(r => r.status === "keep").length;
+  $("tBpb").textContent = st.bestSoFar != null ? fmtPrimary(st.bestSoFar) : "–";
+  $("tLeg").textContent = st.lastKept ? fmtPct(st.lastKept.complete_game_rate) : "–";
+  $("tWin").textContent = st.lastKept && st.lastKept.final ? fmtPct(st.lastKept.final.winrate) : "–";
+  // run panel
+  $("rSeq").textContent = "#" + run.seq;
+  $("rDesc").textContent = run.description;
+  const finished = phase === "between" || phase === "done" || run.started_at + run.wall_seconds <= T;
+  const badge = $("rBadge");
+  const shownStatus = finished ? run.status : (run.status === "crash" && phase !== "crashing" ? "crash" : "running");
+  badge.textContent = shownStatus === "running" ? "running" : run.status;
+  badge.className = "badge " + (shownStatus === "running" ? "pending" : run.status);
+  $("rMeta").innerHTML = `commit <code>${run.commit}</code> · ` +
+    `${PRIMARY.label} ${finished && run.status !== "crash" ? "<b>" + fmtPrimary(run[PRIMARY.key]) + "</b>" : "pending"} · ` +
+    `${(run.num_params / 1e6).toFixed(0)}M params · started ${fmtClock(run.started_at)}`;
+  const banner = $("banner");
+  if (phase === "between" && next) {
+    banner.classList.add("on");
+    banner.innerHTML = `✎ agent is preparing experiment #${next.seq}: <b>${next.description}</b>`;
+  } else if (run.status === "crash" && finished) {
+    banner.classList.add("on");
+    banner.innerHTML = `<span style="color:var(--status-crit)">✕ crashed</span> — logged to results.tsv, moving on`;
+  } else banner.classList.remove("on");
+  // diff
+  $("rDiff").textContent = run.diff || "(baseline — no diff)";
+  // charts: reveal up to current progress
+  const lossPts = run.loss_curve.filter(p => p[0] <= progress + 1e-9);
+  lossChart.update(lossPts, false);
+  const legPts = run.milestones.filter(ms => ms.progress <= progress + 1e-9)
+    .map(ms => [ms.progress, ms.legality_rate]);
+  legChart.update(legPts, true);
+  // boards
+  setBoardsFromMilestone(run, milestone);
+  $("mStat").innerHTML = milestone
+    ? `at <b>${(milestone.progress * 100).toFixed(0)}%</b> of training · legality <b>${fmtPct(milestone.legality_rate)}</b> · avg legal prefix <b>${milestone.mean_legal_prefix}</b> moves`
+    : "no samples yet";
+}
+
+// ============================== Clock loop ==============================
+function setT(t) { T = Math.max(NIGHT_T0, Math.min(NIGHT_T1, t)); }
+function loop(nowMs) {
+  if (DATA.type === "probe") { tickProbe(nowMs); lastFrameTs = nowMs; requestAnimationFrame(loop); return; }
+  if (playing && lastFrameTs !== null) {
+    setT(T + (nowMs - lastFrameTs) / 1000 * speed);
+    if (T >= NIGHT_T1) { playing = false; $("playBtn").textContent = "▶"; }
+  }
+  lastFrameTs = nowMs;
+  render(false);
+  tickBoards(nowMs);
+  requestAnimationFrame(loop);
+}
+
+// ============================== Init ==============================
+function rebuildSmallCharts() {
+  // Robust loss y-domain: the first steps sit near ln(vocab) and would flatten
+  // the informative range, so cap at ~1.3x the 95th percentile.
+  const lossVals = RUNS.flatMap(r => r.loss_curve.map(p => p[1])).sort((a, b) => a - b);
+  const p95 = lossVals.length ? lossVals[Math.floor(lossVals.length * 0.95)] : 3;
+  lossChart = buildSmallChart($("lossChart"), {
+    name: "loss", color: "var(--series-1)", fmt: v => v.toFixed(2),
+    yMin: 0, yMax: p95 * 1.3, clamp: true,
+  });
+  legChart = buildSmallChart($("legChart"), {
+    name: "legality", color: "var(--series-3)", fmt: v => (v * 100).toFixed(0) + "%",
+    yMin: 0, yMax: 1,
+  });
+}
+// Two headline runs per night: the champion on this night's objective, and the
+// champion on the *other* axis. On night 1 that's "best val_bpb" vs "best
+// Othello player"; on night 2 it flips. The gap between them is the story.
+const METRIC_CARD = {
+  val_bpb: {
+    dir: "min", icon: "🏆", title: "best val_bpb — best compressor",
+    value: r => r.val_bpb.toFixed(4),
+    pick: (a, b) => b.val_bpb > 0 && (a.val_bpb <= 0 || b.val_bpb < a.val_bpb) ? b : a,
+  },
+  complete_game_rate: {
+    dir: "max", icon: "♟", title: "best Othello player — most legal play",
+    value: r => `${fmtPct(r.complete_game_rate)} complete · ${fmtPct(r.legal_move_rate)} legal`,
+    pick: (a, b) => b.complete_game_rate > a.complete_game_rate ? b : a,
+  },
+};
+function buildChampions() {
+  const box = $("champs");
+  const eligible = RUNS.filter(r => r.status !== "crash");
+  if (!eligible.length) { box.innerHTML = ""; return; }
+  const primaryKey = PRIMARY.key;
+  const otherKey = primaryKey === "val_bpb" ? "complete_game_rate" : "val_bpb";
+  function jumpTo(run) { setT(run.started_at + run.startup_seconds + 300 - 1); render(true); box.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  function card(key, isPrimary) {
+    const cfg = METRIC_CARD[key];
+    const champ = eligible.reduce(cfg.pick);
+    const b = document.createElement("button");
+    b.className = "champ" + (key === "complete_game_rate" ? " leg" : "");
+    b.innerHTML = `<div class="ct">${cfg.icon} ${cfg.title}${isPrimary ? " — this night's target" : ""}</div>` +
+      `<div class="cv">${cfg.value(champ)}</div>` +
+      `<div class="cd">#${champ.seq} · ${champ.description}</div>` +
+      `<div class="cj">▶ jump to this run</div>`;
+    b.onclick = () => jumpTo(champ);
+    return b;
+  }
+  box.innerHTML = "";
+  box.appendChild(card(primaryKey, true));
+  box.appendChild(card(otherKey, false));
+}
+function buildNightTabs() {
+  const box = $("nightTabs");
+  box.innerHTML = "";
+  NIGHTS.forEach((n, i) => {
+    const b = document.createElement("button");
+    const pending = n.status !== "complete";
+    b.className = "nighttab" + (i === NIGHT_IDX ? " active" : "") + (pending ? " pending" : "");
+    const name = n.title.split(" — ")[0];
+    b.innerHTML = `<span class="act">${n.act}</span> <span>${name}${pending ? " · coming next" : ""}</span>`;
+    if (!pending) b.onclick = () => loadNight(i);
+    box.appendChild(b);
+  });
+}
+
+function loadNight(idx) {
+  setActiveNight(idx);
+  playing = false;
+  $("playBtn").textContent = "▶";
+  $("nightTitle").textContent = DATA.act + " · " + DATA.title.replace(/^Act [IVX]+ — /, "");
+  $("subtitle").textContent = DATA.subtitle + " — " + DATA.hardware;
+  buildNightTabs();
+
+  const isProbe = DATA.type === "probe";
+  $("timelineAct").style.display = isProbe ? "none" : "";
+  $("probeAct").style.display = isProbe ? "" : "none";
+  if (isProbe) { renderProbe(); return; }
+
+  T = NIGHT_T0;
+  $("nightChartTitle").textContent = `The night — ${PRIMARY.label} per experiment (${PRIMARY.direction === "min" ? "lower" : "higher"} is better)`;
+  $("tBpbK").textContent = "best " + PRIMARY.label;
+  $("foot").textContent = `${DATA.branch ? "branch " + DATA.branch + " · " : ""}${RUNS.length} experiments · night of ${new Date(NIGHT_T0 * 1000).toLocaleDateString()}`;
+  buildNightChart();
+  rebuildSmallCharts();
+  buildChampions();
+  const tbody = document.querySelector("#runTable tbody");
+  tbody.innerHTML = "";
+  for (const r of RUNS) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${r.seq}</td><td>${r.description}</td><td>${r.status}</td>` +
+      `<td class="num">${r.val_bpb ? r.val_bpb.toFixed(4) : "—"}</td>` +
+      `<td class="num">${fmtPct(r.complete_game_rate)}</td>` +
+      `<td class="num">${r.final ? fmtPct(r.final.winrate) : "—"}</td>`;
+    tbody.appendChild(tr);
+  }
+  render(true);
+}
+
+// ============================== Act III — world-model probe ==============================
+const PROBE = { frames: null, i: 0, playing: false, next: 0 };
+function heatColor(a) {
+  // chance (~0.33) red → 1.0 green, matching the scale bar
+  const t = Math.max(0, Math.min(1, (a - 0.33) / 0.67));
+  const stops = [[208,59,59],[237,161,0],[27,175,122],[12,163,12]];
+  const seg = Math.min(stops.length - 2, Math.floor(t * (stops.length - 1)));
+  const f = t * (stops.length - 1) - seg;
+  const c = stops[seg].map((v, k) => Math.round(v + (stops[seg + 1][k] - v) * f));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+function renderProbe() {
+  const p = DATA.probe;
+  $("foot").textContent = `probe of ${p.run_id} · layer ${p.best_layer} of ${p.config.n_layer} · ${p.n_games} games`;
+  const acc = p.best_mean_acc;
+  const strength = acc >= 0.85 ? "Yes — the board is really in there."
+    : acc >= 0.7 ? "Mostly — the board is legibly represented."
+    : acc >= 0.55 ? "Partly — a real but noisy board representation." : "Barely — little linear board structure.";
+  $("probeVerdict").textContent = strength;
+  $("probeLead").innerHTML = `A linear probe decodes each square's state from the model's layer-${p.best_layer} activations with <b>${fmtPct(acc)}</b> average accuracy (chance ≈ 33%). The model was trained only on lists of moves — it was never shown a board — yet it built one inside.`;
+
+  // heatmap board
+  const heat = $("heatBoard"); heat.innerHTML = "";
+  const per = p.per_layer[p.best_layer].per_square;
+  const playable = new Set(p.playable_squares);
+  // render rank 8 (top) down to rank 1
+  for (let row = 7; row >= 0; row--) for (let col = 0; col < 8; col++) {
+    const sq = row * 8 + col;
+    const cell = document.createElement("div");
+    cell.className = "heat-sq" + (playable.has(sq) ? "" : " dead");
+    if (playable.has(sq)) {
+      cell.style.background = heatColor(per[sq]);
+      cell.textContent = Math.round(per[sq] * 100);
+    }
+    heat.appendChild(cell);
+  }
+  // per-layer bars
+  const lb = $("layerBars"); lb.innerHTML = "";
+  Object.keys(p.per_layer).sort((a, b) => +a - +b).forEach(li => {
+    const m = p.per_layer[li].mean_acc;
+    const row = document.createElement("div");
+    row.className = "layerbar" + (+li === p.best_layer ? " best" : "");
+    row.innerHTML = `<span>layer ${li}</span><div class="lb-track"><div class="lb-fill" style="width:${(m * 100).toFixed(0)}%"></div></div><span class="lb-val">${fmtPct(m)}</span>`;
+    lb.appendChild(row);
+  });
+  // belief animation
+  buildBeliefBoards();
+  PROBE.frames = p.decoded_games[0];
+  PROBE.i = 0; PROBE.playing = false; PROBE.game = 0;
+  $("probePlay").textContent = "▶ play";
+  drawBelief();
+}
+function buildBeliefBoards() {
+  for (const id of ["beliefBoard", "truthBoard"]) {
+    const b = $(id); b.innerHTML = "";
+    for (let i = 0; i < 64; i++) {
+      const sq = document.createElement("div"); sq.className = "bsq";
+      const disc = document.createElement("div"); disc.className = "disc"; disc.style.display = "none";
+      sq.appendChild(disc); b.appendChild(sq);
+    }
+  }
+}
+function paintBoard(id, state, compareTo) {
+  const cells = $(id).children;
+  let wrong = 0;
+  for (let row = 7, k = 0; row >= 0; row--) for (let col = 0; col < 8; col++, k++) {
+    const sq = row * 8 + col;
+    const v = state[sq];
+    const cell = cells[k], disc = cell.firstChild;
+    disc.style.display = v === 0 ? "none" : "block";
+    disc.className = "disc " + (v === 1 ? "mine" : v === 2 ? "theirs" : "");
+    let bad = false;
+    if (compareTo) { bad = state[sq] !== compareTo[sq]; if (bad) wrong++; }
+    cell.classList.toggle("wrong", bad);
+  }
+  return wrong;
+}
+function drawBelief() {
+  const f = PROBE.frames[Math.min(PROBE.i, PROBE.frames.length - 1)];
+  const wrong = paintBoard("beliefBoard", f.belief, f.truth);
+  paintBoard("truthBoard", f.truth, null);
+  const total = DATA.probe.playable_squares.length;
+  $("beliefStatus").innerHTML = `move ${PROBE.i + 1}/${PROBE.frames.length} (${f.move}) · internal board matches truth on <b>${total - wrong}/${total}</b> squares`;
+}
+function tickProbe(nowMs) {
+  if (!PROBE.playing || !PROBE.frames) return;
+  if (nowMs >= PROBE.next) {
+    PROBE.i++;
+    if (PROBE.i >= PROBE.frames.length) {
+      // advance to next decoded game, loop
+      PROBE.game = (PROBE.game + 1) % DATA.probe.decoded_games.length;
+      PROBE.frames = DATA.probe.decoded_games[PROBE.game];
+      PROBE.i = 0; PROBE.next = nowMs + 1200;
+    } else PROBE.next = nowMs + 550;
+    drawBelief();
+  }
+}
+
+function init() {
+  $("title").textContent = RESEARCH.meta.title;
+  $("tagline").textContent = RESEARCH.meta.tagline;
+  buildBoards(3);
+  // controls (wired once)
+  $("playBtn").addEventListener("click", () => {
+    playing = !playing;
+    if (playing && T >= NIGHT_T1 - 1) setT(NIGHT_T0);
+    $("playBtn").textContent = playing ? "⏸" : "▶";
+  });
+  $("speed").addEventListener("change", e => speed = +e.target.value);
+  $("scrub").addEventListener("input", e => { setT(NIGHT_T0 + e.target.value / 1000 * NIGHT_LEN); render(true); });
+  $("probePlay").addEventListener("click", () => {
+    PROBE.playing = !PROBE.playing;
+    PROBE.next = 0;
+    $("probePlay").textContent = PROBE.playing ? "⏸ pause" : "▶ play";
+  });
+  $("themeBtn").addEventListener("click", () => {
+    const root = document.documentElement;
+    const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+    const cur = root.dataset.theme || (dark ? "dark" : "light");
+    root.dataset.theme = cur === "dark" ? "light" : "dark";
+  });
+  addEventListener("resize", () => { buildNightChart(); rebuildSmallCharts(); render(true); });
+  loadNight(NIGHT_IDX);
+  requestAnimationFrame(loop);
+}
+init();
+</script>
+</body>
+</html>
