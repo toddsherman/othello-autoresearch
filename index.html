@@ -340,6 +340,16 @@
       <span class="steplabel reveal">Looking inside</span>
       <h2 class="reveal">But does it actually "get" the board?</h2>
       <p class="reveal">Here's what nagged me. The model only ever saw move lists, never a board. So is it really tracking the game, or just parroting patterns it has seen? There's a way to check, using a technique called <a href="https://en.wikipedia.org/wiki/Mechanistic_interpretability" target="_blank" rel="noopener">mechanistic interpretability</a>, which studies a model's inner workings to understand how it reaches its answers. You peek inside the model's internal activity as it reads a game and ask whether the current board is written down in there somewhere.</p>
+      <div class="howbox reveal">
+        <div class="h">Under the hood: how we looked</div>
+        <p>As the model reads a game, every layer turns the moves so far into a long list of numbers: its internal working state at that moment. To see whether the board is written into those numbers, we freeze the finished model so it can no longer change, feed it thousands of positions, and record that internal state at each step.</p>
+        <p>Then we train a deliberately simple reader, a single linear layer that looks only at those numbers and tries to name the contents of every square. It never sees the board or the rules, only the model's internal state:</p>
+        <div class="formula">
+          <span class="eq">guess(square) = argmax( <em>W</em> &middot; <em>h</em> + <em>b</em> )</span>
+          <span class="gloss"><em>h</em> is the model's internal state; <em>W</em> and <em>b</em> are all the reader learns. It picks whichever of mine, yours, or empty scores highest. "Linear" means it can only take a weighted sum of the numbers, nothing cleverer.</span>
+        </div>
+        <p>That simplicity is the whole point. A more powerful reader could reconstruct the board by replaying the moves itself, which would prove nothing about the model. A plain linear one can only surface what the model has already written down clearly. So if it can name the squares, the board really is sitting inside the model, in a form simple enough to read straight off.</p>
+      </div>
       <p class="reveal sub">It turns out the board really is in there. Reading the model's internal activity, we can reconstruct what's on each square in the model's own frame (mine, yours, or empty, which reads far more cleanly than black versus white) with <strong>92.8% accuracy</strong>, far above the roughly 33% you'd get by guessing. The picture also sharpens with depth, climbing from about 80% in the model's middle layers to 93% in its later ones. The further a square moves from paper toward ink below, the more reliably the board shows up in the model's internal activity:</p>
     </div>
     <figure class="reveal" data-viz="heat">
